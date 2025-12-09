@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # --- 1. MySQL 数据库服务 ---
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      # ⚠️ 必须在 .env 文件中设置 MYSQL_ROOT_PASSWORD
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD} 
+      MYSQL_DATABASE: essay_scoring
+    volumes:
+      - mysql_data:/var/lib/mysql # 持久化数据库数据
+    expose:
+      - "3306"
+    # 等待数据库完全启动后再运行依赖它的服务
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # --- 2. Flask 后端服务 ---
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile.backend
+    container_name: flask_backend
+    restart: always
+    environment:
+      # ⚠️ 确保在 .env 文件中设置您的 API 密钥
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      # 部署时，后端代码中的连接配置会被这些环境变量覆盖
+      MYSQL_HOST: db # <-- 关键：使用 service name 作为 Host
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: essay_scoring
+    # 外部暴露 5000 端口（可选，但推荐用于调试）
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy # 确保数据库健康检查通过后才启动
+
+  # --- 3. React/Nginx 前端服务 ---
+  frontend:
+    # 假设您的前端 Dockerfile 名为 Dockerfile.frontend
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile.frontend
+    container_name: react_frontend
+    restart: always
+    # 映射到服务器的 80 端口，供用户访问
+    ports:
+      - "80:80" 
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
