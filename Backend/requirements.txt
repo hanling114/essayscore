@@ -3,3 +3,4 @@ Flask-Cors
 openai
 mysql-connector-python
 gunicorn  # 生产环境推荐使用 Gunicorn 作为 WSGI 服务器
+baidu-aip

@@ -30,6 +30,8 @@ services:
     environment:
       # ⚠️ 确保在 .env 文件中设置您的 API 密钥
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      OCR_API_KEY: ${OCR_API_KEY}
+      OCR_SECRET_KEY: ${OCR_SECRET_KEY}
       # 部署时，后端代码中的连接配置会被这些环境变量覆盖
       MYSQL_HOST: db # <-- 关键：使用 service name 作为 Host
       MYSQL_USER: root

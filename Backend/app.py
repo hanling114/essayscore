@@ -7,6 +7,8 @@ from openai import OpenAI
 import os
 import mysql.connector 
 from werkzeug.security import generate_password_hash, check_password_hash
+from aip import AipOcr #百度ocr
+import math
 # --- MySQL 数据库配置 (请根据您的环境修改这些值) ---
 
 MYSQL_HOST = os.getenv('MYSQL_HOST', 'localhost') 
@@ -180,6 +182,7 @@ app = Flask(__name__)
 # 启用 CORS，允许前端（默认运行在不同端口）访问后端
 CORS(app) 
 init_db()
+
 
 @app.route('/api/v1/score', methods=['POST'])
 def score_essay():
@@ -437,6 +440,147 @@ def login_user():
         if conn and conn.is_connected():
             cursor.close()
             conn.close()
+
+
+# 配置允许的文本和图片扩展名
+ALLOWED_TEXT_EXTENSIONS = {'txt'}
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
+def allowed_file(filename, extensions):
+    """检查文件扩展名是否在允许列表中"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in extensions
+
+def classify_left_baselines_by_index(left_coords, tolerance):
+    """
+    尝试从 left 坐标中找出两个主要的基线 (标准左边缘和缩进左边缘)。
+    
+    Args:
+        left_coords: 所有识别块的 left 坐标列表。
+        tolerance: 允许坐标值接近的像素容忍度。
+        
+    Returns:
+        Tuple[List[int], List[int]]: (standard_indices, indent_indices) - 
+                                     分别包含属于第一类和第二类的行索引列表。
+    """
+    if not left_coords:
+        return [], []
+    clusters = [[0], []]
+    current_cluster = 0
+    min_lefts  = [left_coords[0],9999999999]
+    #根据这行与上一行之间的left距离来分类，left距离接近，则这行与上一行为同一类,反之为另一类
+    for i in range(1, len(left_coords)):
+        current_coord = left_coords[i]
+        baseline_coord = left_coords[i-1]
+        if abs(current_coord - baseline_coord) <= tolerance:#判断这行与上行的left距离是否接近
+            clusters[current_cluster].append(i)
+            min_lefts [current_cluster] = min(min_lefts[current_cluster],left_coords[i])
+        else:
+            current_cluster = 1 - current_cluster  # 在 0 和 1 之间切换
+            clusters[current_cluster].append(i)
+            min_lefts[current_cluster] = min(min_lefts[current_cluster],left_coords[i])
+    if min_lefts[0] > min_lefts[1]:
+        return clusters[0]
+    else: return clusters[1]
+def recognize_handwriting_text(file):
+    APP_ID = '121329277'
+    API_KEY = os.getenv('OCR_API_KEY')
+    SECRET_KEY = os.getenv('OCR_SECRET_KEY')
+    client = AipOcr(APP_ID, API_KEY, SECRET_KEY)
+    image=file.read()
+    options={}
+    options["detect_direction"] = "true"
+    # 调用 API
+    try:
+        res_image = client.handwriting(image, options)
+    except Exception as e:
+        # 错误处理，例如网络错误或认证失败
+        print(f"Baidu OCR API call failed: {e}")
+        return f"OCR API 调用失败: {e}"
+
+    if 'error_code' in res_image:
+        error_msg = res_image.get('error_msg', '未知错误')
+        error_code = res_image['error_code']
+        print(f"Baidu OCR API Error {error_code}: {error_msg}")
+        return f"OCR 识别失败: {error_msg} (代码: {error_code})"
+
+    words_results = res_image.get("words_result", [])
+    print(words_results)
+    if not words_results:
+        return "" # 图片中没有识别到任何文字
+
+     # 2. 识别作文的不同自然段
+    structured_lines = []
+    all_heights = []
+    all_lefts = []
+    for item in words_results:
+        if 'location' in item and 'words' in item:
+            left = item['location']['left']
+            height = item['location']['height']
+            top = item['location']['top']
+            structured_lines.append({
+                'words': item['words'],
+                'top': top,
+                'left': left,
+                'height': height
+            })
+            all_heights.append(height)
+            all_lefts.append(left)
+    # 平均行高 (H_avg)
+    H_avg = sum(all_heights) / len(all_heights)
+    # T_indent: 最小有效缩进距离，定义为平均行高的 1.5 倍
+    indent_idx = classify_left_baselines_by_index(all_lefts, 1.5*H_avg)
+    indent_idx_set = set(indent_idx)
+    is_indentation_present = len(indent_idx) > 0
+    reconstructed_essay = []
+    for idx, current_line in enumerate(structured_lines):
+        words = current_line['words']
+        print(words)
+        prefix = ""
+        if is_indentation_present and idx in indent_idx_set:
+            prefix = "\n\u3000\u3000"  # 中文段首缩进
+        reconstructed_essay.append(prefix + words)
+    return "".join(reconstructed_essay)
+@app.route('/api/v1/ocr', methods=['POST'])
+def ocr_handler():
+    """
+    处理文件上传，根据文件类型返回文本内容或 OCR 占位符。
+    """
+    file = request.files.get('file')
+    filename = file.filename
+
+    if allowed_file(filename, ALLOWED_TEXT_EXTENSIONS):
+        # --- 文本文件处理 (.txt) ---
+        try:
+            # 读取文件内容 (假设文件编码为 UTF-8)
+            text_content = file.read().decode('utf-8')
+            
+            print(f"File {filename} content read successfully.")
+            print(text_content)
+            return jsonify({
+                'status': 'success',
+                'content': text_content
+            })
+        except UnicodeDecodeError:
+            return jsonify({'error': 'Could not decode text file (try UTF-8 encoding)'}), 422
+        except Exception as e:
+            return jsonify({'error': f'Failed to read text file: {e}'}), 500
+
+    elif allowed_file(filename, ALLOWED_IMAGE_EXTENSIONS):
+        # --- 图片文件处理---
+        image_content = recognize_handwriting_text(file)
+        return jsonify({
+            'status': 'success',
+            'content': image_content,
+        })
+
+    else:
+        # --- 不支持的文件类型 ---
+        unsupported_extensions = ALLOWED_TEXT_EXTENSIONS.union(ALLOWED_IMAGE_EXTENSIONS)
+        return jsonify({
+            'error': f"Unsupported file format. Please upload .txt or image files ({', '.join(unsupported_extensions)})."
+        }), 415
+
+
 if __name__ == '__main__':
     # 注意：默认运行在 http://127.0.0.1:5000/
     # 在生产环境中，请不要使用 debug=True

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 // 确保导入所有需要的图标
-import { Menu, X, Send, Clock, Edit3, MessageSquare, Target, Hash, FileText, Loader2, BookOpen, LogOut } from 'lucide-react';
+import { Menu, X, Send, Clock, Edit3, MessageSquare, Target, Hash, FileText, Loader2, BookOpen, LogOut, Upload } from 'lucide-react';
 
 
 // 历史记录数据
@@ -34,34 +34,32 @@ const callApi = async (endpoint, method = 'GET', data = null) => {
 
     try {
         // 对于所有 API 调用，尝试先调用真实后端
-        if (method === 'GET' || method === 'POST') {
-            const fetchOptions = {
-                method: method,
-                headers: {
+        const fetchOptions = { method };
+        if (method === 'POST' && data !== null) {
+            if (data instanceof FormData) {
+                fetchOptions.body = data;
+            } else {
+                fetchOptions.headers = {
                     'Content-Type': 'application/json',
-                },
-            };
-
-            if (data && method === 'POST') {
+                };
                 fetchOptions.body = JSON.stringify(data);
             }
-
-            const response = await fetch(url, fetchOptions);
-
-            if (!response.ok) {
-                // 如果后端返回非 2xx 状态码
-                let errorBody;
-                try {
-                    errorBody = await response.json();
-                } catch {
-                    errorBody = { error: `HTTP error! status: ${response.status}` };
-                }
-                throw new Error(errorBody.error || `HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-            return result;
         }
+        const response = await fetch(url, fetchOptions);
+
+        if (!response.ok) {
+                // 如果后端返回非 2xx 状态码
+            let errorBody;
+            try {
+                errorBody = await response.json();
+            } catch {
+                errorBody = { error: `HTTP error! status: ${response.status}` };
+            }
+            throw new Error(errorBody.error || `HTTP error! status: ${response.status}`);
+         }
+
+        const result = await response.json();
+        return result;
     } catch (error) {
         console.error(`[API ERROR] Error calling ${method} ${url}:`, error);
         
@@ -260,7 +258,7 @@ const ResultPage = ({ essay, onBack, isSaving }) => {
 
 // --- HOME PAGE COMPONENT  ---
 
-const HomeView = ({ username, onSubmit, isLoading }) => {
+const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification}) => {
     const [topic, setTopic] = useState('描述你最喜欢的一件艺术品及其对你的意义，要求结构完整，主题明确。');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
@@ -276,16 +274,48 @@ const HomeView = ({ username, onSubmit, isLoading }) => {
         onSubmit({ username, topic, title, content });
     };
 
-    const handleFileChange = (e) => {
-        // 模拟文件读取和 OCR (实际中需要调用 OCR API 或库)
+    const handleFileChange = useCallback(async (e) => {
+        // 文件读取和 OCR
         const file = e.target.files[0];
-        if (file) {
-            console.warn(`[功能模拟] 正在上传文件: ${file.name}。实际部署时，后端需处理文件上传和OCR/文本解析。`);
-            // 简单模拟文件内容
-            setContent("根据上传的文件，大模型将识别并处理这段文字。请注意，目前的文本是模拟内容，不是文件实际内容。");
-            e.target.value = null; // 清除文件选择，允许再次选择相同文件
+        if (!file) {
+            console.warn("用户取消了文件选择。");
+            return;
         }
-    };
+
+        if (file.size === 0) {
+            setNotification({ type: 'error', message: '文件为空，请选择有效文件。' });
+            return;
+        }
+
+        setIsLoading(true);
+        setNotification({ type: 'info', message: `正在上传和识别文件: ${file.name}...` });
+
+        try {
+            // **使用 await 调用异步 API**
+            const formData = new FormData();
+            formData.append('file', file);
+            const data = await callApi('/api/v1/ocr', 'POST', formData); 
+            // **将 API 返回的实际数据设置到 content 状态**
+            setContent(data.content); 
+
+            setNotification({ 
+                type: 'success', 
+                message: `文件 ${file.name} 处理成功，内容已填充。` 
+            });
+
+        } catch (error) {
+            console.error("文件上传失败:", error);
+            setNotification({ 
+                type: 'error', 
+                message: `处理失败: ${error.message}` 
+            });
+            setContent(''); // 失败时清空内容
+        } finally {
+            setIsLoading(false);
+            // 清除文件选择，允许再次选择相同文件
+            e.target.value = null; 
+        }
+    }, []);
 
     return (
         <div className="p-4 md:p-8 max-w-4xl mx-auto">
@@ -350,13 +380,36 @@ const HomeView = ({ username, onSubmit, isLoading }) => {
 
                     {/* 文件上传/OCR 区域 */}
                     <div className="mt-4 flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4 items-center">
-                        <label className="w-full md:w-auto cursor-pointer bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-100 font-medium py-2 px-4 rounded-lg text-center transition duration-150 whitespace-nowrap">
-                            <input type="file" accept=".txt,image/*" onChange={handleFileChange} className="hidden" />
-                            {/* 文件上传 */}
-                            上传文件 / OCR 识别
+                        <label
+                            className={`
+                                w-full md:w-auto font-medium py-2 px-4 rounded-lg text-center transition duration-150 whitespace-nowrap flex items-center justify-center space-x-2
+                                ${isLoading
+                                    ? 'bg-gray-100 border border-gray-300 text-gray-500 cursor-not-allowed' // 禁用状态
+                                    : 'cursor-pointer bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-100' // 正常状态
+                                }
+                            `}
+                        >
+                            <input
+                                type="file" 
+                                accept=".txt,image/*" 
+                                onChange={handleFileChange} 
+                                className="hidden"
+                                disabled={isLoading}
+                            />
+                            {isLoading ? (
+                                <>
+                                    <LoadingSpinner />
+                                    <span>文件处理中...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Upload className="w-5 h-5 mr-1" />
+                                    <span>上传文件 / OCR 识别</span>
+                                </>
+                            )}
                         </label>
                         <span className="text-sm text-gray-500 italic flex-grow text-center md:text-left">
-                            支持文本文件或图片（模拟OCR输入），内容将自动填充到上方文本框。
+                            支持文本文件或图片，内容将自动填充到上方文本框。
                         </span>
                     </div>
                 </div>
@@ -407,7 +460,7 @@ const HomePage = ({ username, onLogout }) => {
             console.error("Failed to load history:", error);
             setNotification({ type: 'error', message: '加载历史记录失败。' });
         }
-    }, []);
+    }, [username]);
 
     // 加载单篇作文详情
     const loadEssayDetails = useCallback(async (essayId) => {
@@ -477,7 +530,13 @@ const HomePage = ({ username, onLogout }) => {
             );
         }
         if (currentView === 'home') {
-            return <HomeView username={username} onSubmit={handleSubmitScoring} isLoading={isLoading} />;
+            return (
+                <HomeView 
+                    username={username} 
+                    onSubmit={handleSubmitScoring} 
+                    isLoading={isLoading} 
+                    setIsLoading={setIsLoading} 
+                    setNotification={setNotification} />);
         }
         if (currentEssay && currentEssay.id === currentView) {
             return <ResultPage essay={currentEssay} onBack={() => loadEssayDetails('home')} isSaving={isLoading} />;
