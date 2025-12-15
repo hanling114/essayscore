@@ -692,7 +692,9 @@ const HomePage = ({ username, onLogout }) => {
             return (
                 <HomeView 
                     username={username} 
-                    onSubmit={handleSubmitScoring} 
+                    onSubmit={handleSubmitScoring}
+                    isLoading={isLoading}
+                    setIsLoading={setIsLoading}
                     setNotification={setNotification} />);
         }
         if (currentEssay && currentEssay.id === currentView) {
@@ -719,7 +721,6 @@ const HomePage = ({ username, onLogout }) => {
                     history={history}
                     onSelectEssay={loadEssayDetails}
                     currentEssayId={currentView}
-                    isLoading={isLoading}
                     onClose={() => setIsSidebarOpen(false)}
                 />
             </div>
