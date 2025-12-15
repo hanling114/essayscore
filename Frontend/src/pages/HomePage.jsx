@@ -258,11 +258,14 @@ const ResultPage = ({ essay, onBack, isSaving }) => {
 
 // --- HOME PAGE COMPONENT  ---
 
-const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification}) => {
+const HomeView = ({ username, isLoading, onSubmit, setNotification}) => {
     const [topic, setTopic] = useState('描述你最喜欢的一件艺术品及其对你的意义，要求结构完整，主题明确。');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
     const [error, setError] = useState(null);
+    const [topic_ocr_isLoading, topic_ocr_setIsLoading] = useState(false);
+    const [title_ocr_isLoading, title_ocr_setIsLoading] = useState(false);
+    const [essay_ocr_isLoading, essay_ocr_setIsLoading] = useState(false);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -274,7 +277,7 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
         onSubmit({ username, topic, title, content });
     };
 
-    const handleFileChange = useCallback(async (e) => {
+    const handleTopicChange = useCallback(async (e) => {
         // 文件读取和 OCR
         const file = e.target.files[0];
         if (!file) {
@@ -287,7 +290,93 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
             return;
         }
 
-        setIsLoading(true);
+        topic_ocr_setIsLoading(true);
+        setNotification({ type: 'info', message: `正在上传和识别文件: ${file.name}...` });
+
+        try {
+            // **使用 await 调用异步 API**
+            const formData = new FormData();
+            formData.append('file', file);
+            const data = await callApi('/api/v1/ocr', 'POST', formData); 
+            // **将 API 返回的实际数据设置到 content 状态**
+            setTopic(data.content); 
+
+            setNotification({ 
+                type: 'success', 
+                message: `文件 ${file.name} 处理成功，内容已填充。` 
+            });
+
+        } catch (error) {
+            console.error("文件上传失败:", error);
+            setNotification({ 
+                type: 'error', 
+                message: `处理失败: ${error.message}` 
+            });
+            setTopic(''); // 失败时清空内容
+        } finally {
+            topic_ocr_setIsLoading(false);
+            // 清除文件选择，允许再次选择相同文件
+            e.target.value = null; 
+        }
+    }, []);
+
+    const handleTitleChange = useCallback(async (e) => {
+        // 文件读取和 OCR
+        const file = e.target.files[0];
+        if (!file) {
+            console.warn("用户取消了文件选择。");
+            return;
+        }
+
+        if (file.size === 0) {
+            setNotification({ type: 'error', message: '文件为空，请选择有效文件。' });
+            return;
+        }
+
+        title_ocr_setIsLoading(true);
+        setNotification({ type: 'info', message: `正在上传和识别文件: ${file.name}...` });
+
+        try {
+            // **使用 await 调用异步 API**
+            const formData = new FormData();
+            formData.append('file', file);
+            const data = await callApi('/api/v1/ocr', 'POST', formData); 
+            // **将 API 返回的实际数据设置到 content 状态**
+            setTitle(data.content); 
+
+            setNotification({ 
+                type: 'success', 
+                message: `文件 ${file.name} 处理成功，内容已填充。` 
+            });
+
+        } catch (error) {
+            console.error("文件上传失败:", error);
+            setNotification({ 
+                type: 'error', 
+                message: `处理失败: ${error.message}` 
+            });
+            setTitle(''); // 失败时清空内容
+        } finally {
+            title_ocr_setIsLoading(false);
+            // 清除文件选择，允许再次选择相同文件
+            e.target.value = null; 
+        }
+    }, []);
+
+    const handleEssayChange = useCallback(async (e) => {
+        // 文件读取和 OCR
+        const file = e.target.files[0];
+        if (!file) {
+            console.warn("用户取消了文件选择。");
+            return;
+        }
+
+        if (file.size === 0) {
+            setNotification({ type: 'error', message: '文件为空，请选择有效文件。' });
+            return;
+        }
+
+        essay_ocr_setIsLoading(true);
         setNotification({ type: 'info', message: `正在上传和识别文件: ${file.name}...` });
 
         try {
@@ -311,7 +400,7 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
             });
             setContent(''); // 失败时清空内容
         } finally {
-            setIsLoading(false);
+            essay_ocr_setIsLoading(false);
             // 清除文件选择，允许再次选择相同文件
             e.target.value = null; 
         }
@@ -346,6 +435,41 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 resize-none"
                         required
                     />
+
+                    {/* 文件上传/OCR 区域 */}
+                    <div className="mt-4 flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4 items-center">
+                        <label
+                            className={`
+                                w-full md:w-auto font-medium py-2 px-4 rounded-lg text-center transition duration-150 whitespace-nowrap flex items-center justify-center space-x-2
+                                ${topic_ocr_isLoading
+                                    ? 'bg-gray-100 border border-gray-300 text-gray-500 cursor-not-allowed' // 禁用状态
+                                    : 'cursor-pointer bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-100' // 正常状态
+                                }
+                            `}
+                        >
+                            <input
+                                type="file" 
+                                accept=".txt,image/*" 
+                                onChange={handleTopicChange} 
+                                className="hidden"
+                                disabled={topic_ocr_isLoading}
+                            />
+                            {topic_ocr_isLoading ? (
+                                <>
+                                    <LoadingSpinner />
+                                    <span>文件处理中...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Upload className="w-5 h-5 mr-1" />
+                                    <span>上传文件 / 文字识别</span>
+                                </>
+                            )}
+                        </label>
+                        <span className="text-sm text-gray-500 italic flex-grow text-center md:text-left">
+                            支持文本文件或图片，内容将自动填充到上方文本框。
+                        </span>
+                    </div>
                 </div>
 
                 {/* 2. 作文标题 */}
@@ -361,6 +485,41 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
                         placeholder="请输入作文标题（可选）"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"
                     />
+
+                    {/* 文件上传/OCR 区域 */}
+                    <div className="mt-4 flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4 items-center">
+                        <label
+                            className={`
+                                w-full md:w-auto font-medium py-2 px-4 rounded-lg text-center transition duration-150 whitespace-nowrap flex items-center justify-center space-x-2
+                                ${title_ocr_isLoading
+                                    ? 'bg-gray-100 border border-gray-300 text-gray-500 cursor-not-allowed' // 禁用状态
+                                    : 'cursor-pointer bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-100' // 正常状态
+                                }
+                            `}
+                        >
+                            <input
+                                type="file" 
+                                accept=".txt,image/*" 
+                                onChange={handleTitleChange} 
+                                className="hidden"
+                                disabled={title_ocr_isLoading}
+                            />
+                            {title_ocr_isLoading ? (
+                                <>
+                                    <LoadingSpinner />
+                                    <span>文件处理中...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Upload className="w-5 h-5 mr-1" />
+                                    <span>上传文件 / 文字识别</span>
+                                </>
+                            )}
+                        </label>
+                        <span className="text-sm text-gray-500 italic flex-grow text-center md:text-left">
+                            支持文本文件或图片，内容将自动填充到上方文本框。
+                        </span>
+                    </div>
                 </div>
 
                 {/* 3. 作文主体 */}
@@ -383,7 +542,7 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
                         <label
                             className={`
                                 w-full md:w-auto font-medium py-2 px-4 rounded-lg text-center transition duration-150 whitespace-nowrap flex items-center justify-center space-x-2
-                                ${isLoading
+                                ${essay_ocr_isLoading
                                     ? 'bg-gray-100 border border-gray-300 text-gray-500 cursor-not-allowed' // 禁用状态
                                     : 'cursor-pointer bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-100' // 正常状态
                                 }
@@ -392,11 +551,11 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
                             <input
                                 type="file" 
                                 accept=".txt,image/*" 
-                                onChange={handleFileChange} 
+                                onChange={handleEssayChange} 
                                 className="hidden"
-                                disabled={isLoading}
+                                disabled={essay_ocr_isLoading}
                             />
-                            {isLoading ? (
+                            {essay_ocr_isLoading ? (
                                 <>
                                     <LoadingSpinner />
                                     <span>文件处理中...</span>
@@ -404,7 +563,7 @@ const HomeView = ({ username, onSubmit, isLoading, setIsLoading, setNotification
                             ) : (
                                 <>
                                     <Upload className="w-5 h-5 mr-1" />
-                                    <span>上传文件 / OCR 识别</span>
+                                    <span>上传文件 / 文字识别</span>
                                 </>
                             )}
                         </label>
@@ -534,8 +693,6 @@ const HomePage = ({ username, onLogout }) => {
                 <HomeView 
                     username={username} 
                     onSubmit={handleSubmitScoring} 
-                    isLoading={isLoading} 
-                    setIsLoading={setIsLoading} 
                     setNotification={setNotification} />);
         }
         if (currentEssay && currentEssay.id === currentView) {
@@ -562,6 +719,7 @@ const HomePage = ({ username, onLogout }) => {
                     history={history}
                     onSelectEssay={loadEssayDetails}
                     currentEssayId={currentView}
+                    isLoading={isLoading}
                     onClose={() => setIsSidebarOpen(false)}
                 />
             </div>
